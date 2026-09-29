@@ -1,0 +1,67 @@
+name: M5A dump + device tree
+
+on:
+  workflow_dispatch:
+
+env:
+  FILE_ID: 1Zym11jucMp-BnYvk9qhpChoPkVqmIae7
+  GH_TOKEN: ${{ secrets.PAT }}
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip zip p7zip-full lz4 android-sdk-libsparse-utils
+          pip install gdown
+          pip install git+https://github.com/AndroidDumps/dumpyara
+          pip install aospdtgen
+          git clone --depth=1 https://github.com/bismoy-bot/PAC-Extractor
+
+      - name: Download stock zip (gdown, by ID)
+        run: gdown "$FILE_ID" -O stock.zip
+
+      - name: Unzip and extract PAC
+        run: |
+          mkdir -p zipout pacout
+          unzip -o stock.zip -d zipout
+          PAC=$(find zipout -iname '*.pac' | head -n1)
+          echo "PAC: $PAC"
+          python3 PAC-Extractor/extractor.py "$PAC" pacout
+          ls -lah pacout
+          rm -rf stock.zip zipout
+
+      - name: Dump with dumpyara (handles super.img)
+        run: |
+          # dumpyara wants a firmware zip
+          (cd pacout && zip -r ../firmware.zip .)
+          rm -rf pacout
+          dumpyara firmware.zip -o dump
+          ls dump
+
+      - name: Generate device tree with aospdtgen
+        run: |
+          python3 -m aospdtgen dump -o dt_output
+          find dt_output -maxdepth 3
+
+      - name: Push device tree
+        run: |
+          git config --global user.name "Kyros70"
+          git config --global user.email "218506751+Kyros70@users.noreply.github.com"
+          cd dt_output
+          git init -b main
+          git add -A
+          git commit -qm "M5A: Push AOSPDTGEN tree"
+          git remote add origin https://x-access-token:${{ secrets.PAT }}@github.com/Kyros70/m5a-aospdtgen.git
+          git push -u origin main --force
