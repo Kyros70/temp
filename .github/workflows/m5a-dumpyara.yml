@@ -47,50 +47,26 @@ jobs:
           cd dumpyara
           bash dumpyara.sh "$GITHUB_WORKSPACE/firmware.zip" || true
 
-      - name: Extract vendor blobs only
+      - name: Locate dump folder
         run: |
           cd dumpyara
           D=$(find working -maxdepth 3 -type d -name system -printf '%h\n' | awk '{print length, $0}' | sort -n | head -n1 | cut -d' ' -f2-)
-          echo "DUMP=$D" >> "$GITHUB_ENV"
+          echo "DUMP=$PWD/$D" >> "$GITHUB_ENV"
           ls -lah "$D"
-          du -sh "$D"/{vendor,odm,system_ext,product} 2>/dev/null || true
 
-      - name: Prepare vendor blobs repo
+      - name: Prepare vendor repo
         run: |
           mkdir -p m5a_vendor/proprietary
-          for dir in vendor odm system_ext product; do
-            if [ -d "${{ env.DUMP }}/$dir" ]; then
-              cp -r "${{ env.DUMP }}/$dir" m5a_vendor/proprietary/
-            fi
+          for d in vendor odm system_ext product; do
+            if [ -d "$DUMP/$d" ]; then cp -r "$DUMP/$d" m5a_vendor/proprietary/; fi
           done
+          printf '%s\n' 'LOCAL_PATH := $(call my-dir)' 'ifeq ($(TARGET_DEVICE),M5A)' 'endif' > m5a_vendor/Android.mk
+          printf '%s\n' '# M5A vendor BoardConfig' 'include vendor/freeyond/M5A/M5A-vendor.mk' > m5a_vendor/BoardConfigVendor.mk
+          find m5a_vendor/proprietary -type f | sed 's|^m5a_vendor/proprietary/||' | sort > m5a_vendor/files.txt
           du -sh m5a_vendor
-          find m5a_vendor -type f | head -30
+          wc -l m5a_vendor/files.txt
 
-      - name: Create vendor repo structure
-        run: |
-          cd m5a_vendor
-          cat > Android.mk << 'EOF'
-LOCAL_PATH := $(call my-dir)
-ifeq ($(TARGET_DEVICE),M5A)
-include $(CLEAR_VARS)
-EOF
-          
-          cat > BoardConfigVendor.mk << 'EOF'
-# Vendor-specific BoardConfig for M5A
-include vendor/freeyond/M5A/M5A-vendor.mk
-EOF
-          
-          cat > Android.bp << 'EOF'
-// Auto-generated vendor config
-EOF
-          
-          cat > files.txt << 'EOF'
-# Vendor files dumped from M5A stock ROM
-EOF
-          
-          ls -la
-
-      - name: Push vendor blobs
+      - name: Push vendor repo
         run: |
           git config --global user.name "Kyros70"
           git config --global user.email "218506751+Kyros70@users.noreply.github.com"
@@ -100,11 +76,4 @@ EOF
           git commit -qm "M5A vendor blobs from stock dump"
           git remote add origin https://x-access-token:${{ secrets.PAT }}@github.com/Kyros70/vendor_freeyond_M5A.git
           git push -u origin main --force
-
-      - name: Upload dump artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: m5a-vendor-dump
-          path: m5a_vendor/
-          retention-days: 5
+          
