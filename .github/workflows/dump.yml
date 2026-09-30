@@ -25,7 +25,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y unzip zip p7zip-full lz4 android-sdk-libsparse-utils
           pip install gdown
-          pip install git+https://github.com/AndroidDumps/dumpyara
+          git clone --depth=1 https://github.com/AndroidDumps/dumpyara
+          (cd dumpyara && bash setup.sh)
           pip install aospdtgen
           git clone --depth=1 https://github.com/bismoy-bot/PAC-Extractor
 
@@ -44,24 +45,27 @@ jobs:
 
       - name: Dump with dumpyara (handles super.img)
         run: |
-          # dumpyara wants a firmware zip
-          (cd pacout && zip -r ../firmware.zip .)
+          (cd pacout && zip -0 -r ../firmware.zip .)
           rm -rf pacout
-          dumpyara firmware.zip -o dump
-          ls dump
+          cd dumpyara
+          bash dumpyara.sh "$GITHUB_WORKSPACE/firmware.zip"
+          # locate the dump dir (the one containing system/)
+          DUMP=$(find working -maxdepth 3 -type d -name system -printf '%h\n' | awk '{print length, $0}' | sort -n | head -n1 | cut -d' ' -f2-)
+          echo "DUMP=$PWD/$DUMP" | tee -a "$GITHUB_ENV"
+          ls "$DUMP"
 
       - name: Generate device tree with aospdtgen
         run: |
-          python3 -m aospdtgen dump -o dt_output
+          python3 -m aospdtgen "$DUMP" -o dt_output
           find dt_output -maxdepth 3
 
-      - name: Push device tree
+      - name: Push device tree to a new repo
         run: |
-          git config --global user.name "Kyros70"
-          git config --global user.email "218506751+Kyros70@users.noreply.github.com"
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
           cd dt_output
           git init -b main
           git add -A
-          git commit -qm "M5A: Push AOSPDTGEN tree"
-          git remote add origin https://x-access-token:${{ secrets.PAT }}@github.com/Kyros70/m5a-aospdtgen.git
-          git push -u origin main --force
+          git commit -qm "M5A device tree"
+          gh repo create "${{ github.repository_owner }}/m5a-device-tree" --public --source=. --push
+          
