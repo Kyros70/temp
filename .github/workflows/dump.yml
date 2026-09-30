@@ -48,7 +48,7 @@ jobs:
           (cd pacout && zip -0 -r ../firmware.zip .)
           rm -rf pacout
           cd dumpyara
-          bash dumpyara.sh "$GITHUB_WORKSPACE/firmware.zip"
+          bash dumpyara.sh "$GITHUB_WORKSPACE/firmware.zip" || true
           # locate the dump dir (the one containing system/)
           DUMP=$(find working -maxdepth 3 -type d -name system -printf '%h\n' | awk '{print length, $0}' | sort -n | head -n1 | cut -d' ' -f2-)
           echo "DUMP=$PWD/$DUMP" | tee -a "$GITHUB_ENV"
