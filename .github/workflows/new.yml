@@ -1,0 +1,104 @@
+name: M5A stock extras
+
+on:
+  workflow_dispatch:
+
+env:
+  FILE_ID: 1Zym11jucMp-BnYvk9qhpChoPkVqmIae7
+
+jobs:
+  extras:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip zip p7zip-full lz4 android-sdk-libsparse-utils
+          pip install gdown
+          git clone --depth=1 https://github.com/AndroidDumps/dumpyara
+          (cd dumpyara && bash setup.sh)
+          git clone --depth=1 https://github.com/bismoy-bot/PAC-Extractor
+
+      - name: Download stock zip
+        run: gdown "$FILE_ID" -O stock.zip
+
+      - name: Extract PAC and record partition info
+        run: |
+          rawsize() {
+            f="$1"
+            if [ "$(od -An -tx4 -N4 "$f" | tr -d ' ')" = "ed26ff3a" ]; then
+              b=$(od -An -tu4 -j12 -N4 "$f" | tr -d ' ')
+              n=$(od -An -tu4 -j16 -N4 "$f" | tr -d ' ')
+              echo $((b * n))
+            else
+              stat -c %s "$f"
+            fi
+          }
+          mkdir -p zipout pacout stock-info/pac-meta bootimgs
+          unzip -o stock.zip -d zipout
+          PAC=$(find zipout -iname '*.pac' | head -n1)
+          python3 PAC-Extractor/extractor.py "$PAC" pacout
+          rm -rf stock.zip zipout
+          find pacout -type f | sort | while read -r f; do
+            echo "$(rawsize "$f") $(basename "$f")"
+          done > stock-info/pac-file-sizes.txt
+          find pacout -type f \( -iname '*.xml' -o -iname '*.cfg' -o -iname '*.ini' -o -iname '*.txt' \) -size -2M -exec cp -v {} stock-info/pac-meta/ \; || true
+          find pacout -type f \( -name 'boot*.img' -o -name 'vendor_boot*.img' -o -name 'init_boot*.img' -o -name 'dtbo*.img' -o -name 'dtb*.img' -o -name 'vbmeta*.img' \) -exec cp -v {} bootimgs/ \;
+          cat stock-info/pac-file-sizes.txt
+
+      - name: Run dumpyara
+        run: |
+          (cd pacout && zip -0 -r ../firmware.zip .)
+          rm -rf pacout
+          cd dumpyara
+          bash dumpyara.sh "$GITHUB_WORKSPACE/firmware.zip" || true
+
+      - name: Collect stock extras
+        run: |
+          cd dumpyara
+          D=$(find working -maxdepth 3 -type d -name system -printf '%h\n' | awk '{print length, $0}' | sort -n | head -n1 | cut -d' ' -f2-)
+          DUMP="$PWD/$D"
+          echo "DUMP=$DUMP" >> "$GITHUB_ENV"
+          cd "$GITHUB_WORKSPACE"
+          ls -la "$DUMP"
+          find dumpyara/working -maxdepth 4 -name '*.img' -printf '%s %f\n' | sort -k2 > stock-info/dump-image-sizes.txt || true
+          mkdir -p out/proprietary/vendor_dlkm
+          if [ -d "$DUMP/vendor_dlkm" ]; then
+            cp -a "$DUMP/vendor_dlkm/." out/proprietary/vendor_dlkm/
+          fi
+          find out/proprietary/vendor_dlkm -type f | sort > stock-info/vendor_dlkm-files.txt
+          wc -l stock-info/vendor_dlkm-files.txt
+          for p in system/system/build.prop system/build.prop vendor/build.prop odm/etc/build.prop vendor_dlkm/etc/build.prop product/etc/build.prop system_ext/etc/build.prop; do
+            if [ -f "$DUMP/$p" ]; then cp "$DUMP/$p" "stock-info/$(echo $p | tr '/' '_')"; fi
+          done
+          find "$DUMP" -maxdepth 5 -path '*vintf*' -name '*.xml' | head -50 > stock-info/vintf-paths.txt || true
+          ls -la stock-info
+
+      - name: Push extras to vendor repo
+        run: |
+          git config --global user.name "Kyros70"
+          git config --global user.email "218506751+Kyros70@users.noreply.github.com"
+          git clone --depth 1 "https://x-access-token:${{ secrets.PAT }}@github.com/Kyros70/vendor_freeyond_M5A.git" vendor_repo
+          mkdir -p vendor_repo/proprietary/vendor_dlkm vendor_repo/stock-info
+          cp -a out/proprietary/vendor_dlkm/. vendor_repo/proprietary/vendor_dlkm/
+          cp -a stock-info/. vendor_repo/stock-info/
+          cd vendor_repo
+          git add -A
+          git commit -qm "Add vendor_dlkm and stock info from dump" || echo "nothing to commit"
+          git push origin main
+
+      - name: Upload stock boot images
+        uses: actions/upload-artifact@v4
+        with:
+          name: m5a-stock-boot-images
+          path: bootimgs/
+          retention-days: 3
