@@ -1,0 +1,110 @@
+name: M5A dump vendor only
+
+on:
+  workflow_dispatch:
+
+env:
+  FILE_ID: 1Zym11jucMp-BnYvk9qhpChoPkVqmIae7
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip zip p7zip-full lz4 android-sdk-libsparse-utils
+          pip install gdown
+          git clone --depth=1 https://github.com/AndroidDumps/dumpyara
+          (cd dumpyara && bash setup.sh)
+          git clone --depth=1 https://github.com/bismoy-bot/PAC-Extractor
+
+      - name: Download stock zip
+        run: gdown "$FILE_ID" -O stock.zip
+
+      - name: Extract PAC
+        run: |
+          mkdir -p zipout pacout
+          unzip -o stock.zip -d zipout
+          PAC=$(find zipout -iname '*.pac' | head -n1)
+          python3 PAC-Extractor/extractor.py "$PAC" pacout
+          rm -rf stock.zip zipout
+          find pacout -type f | wc -l
+
+      - name: Run dumpyara
+        run: |
+          (cd pacout && zip -0 -r ../firmware.zip .)
+          rm -rf pacout
+          cd dumpyara
+          bash dumpyara.sh "$GITHUB_WORKSPACE/firmware.zip" || true
+
+      - name: Extract vendor blobs only
+        run: |
+          cd dumpyara
+          D=$(find working -maxdepth 3 -type d -name system -printf '%h\n' | awk '{print length, $0}' | sort -n | head -n1 | cut -d' ' -f2-)
+          echo "DUMP=$D" >> "$GITHUB_ENV"
+          ls -lah "$D"
+          du -sh "$D"/{vendor,odm,system_ext,product} 2>/dev/null || true
+
+      - name: Prepare vendor blobs repo
+        run: |
+          mkdir -p m5a_vendor/proprietary
+          for dir in vendor odm system_ext product; do
+            if [ -d "${{ env.DUMP }}/$dir" ]; then
+              cp -r "${{ env.DUMP }}/$dir" m5a_vendor/proprietary/
+            fi
+          done
+          du -sh m5a_vendor
+          find m5a_vendor -type f | head -30
+
+      - name: Create vendor repo structure
+        run: |
+          cd m5a_vendor
+          cat > Android.mk << 'EOF'
+LOCAL_PATH := $(call my-dir)
+ifeq ($(TARGET_DEVICE),M5A)
+include $(CLEAR_VARS)
+EOF
+          
+          cat > BoardConfigVendor.mk << 'EOF'
+# Vendor-specific BoardConfig for M5A
+include vendor/freeyond/M5A/M5A-vendor.mk
+EOF
+          
+          cat > Android.bp << 'EOF'
+// Auto-generated vendor config
+EOF
+          
+          cat > files.txt << 'EOF'
+# Vendor files dumped from M5A stock ROM
+EOF
+          
+          ls -la
+
+      - name: Push vendor blobs
+        run: |
+          git config --global user.name "Kyros70"
+          git config --global user.email "218506751+Kyros70@users.noreply.github.com"
+          cd m5a_vendor
+          git init -b main
+          git add -A
+          git commit -qm "M5A vendor blobs from stock dump"
+          git remote add origin https://x-access-token:${{ secrets.PAT }}@github.com/Kyros70/vendor_freeyond_M5A.git
+          git push -u origin main --force
+
+      - name: Upload dump artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m5a-vendor-dump
+          path: m5a_vendor/
+          retention-days: 5
