@@ -60,6 +60,9 @@ jobs:
           for d in vendor odm system_ext product; do
             if [ -d "$DUMP/$d" ]; then cp -r "$DUMP/$d" m5a_vendor/proprietary/; fi
           done
+          rm -rf m5a_vendor/proprietary/product/app m5a_vendor/proprietary/product/priv-app
+          find m5a_vendor/proprietary -type f -name '*.apk' -size +50M -delete
+          find m5a_vendor/proprietary -type f -size +95M -print -delete
           printf '%s\n' 'LOCAL_PATH := $(call my-dir)' 'ifeq ($(TARGET_DEVICE),M5A)' 'endif' > m5a_vendor/Android.mk
           printf '%s\n' '# M5A vendor BoardConfig' 'include vendor/freeyond/M5A/M5A-vendor.mk' > m5a_vendor/BoardConfigVendor.mk
           find m5a_vendor/proprietary -type f | sed 's|^m5a_vendor/proprietary/||' | sort > m5a_vendor/files.txt
@@ -76,4 +79,3 @@ jobs:
           git commit -qm "M5A vendor blobs from stock dump"
           git remote add origin https://x-access-token:${{ secrets.PAT }}@github.com/Kyros70/vendor_freeyond_M5A.git
           git push -u origin main --force
-          
