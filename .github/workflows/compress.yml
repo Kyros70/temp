@@ -1,0 +1,37 @@
+name: Compress system.img
+
+on:
+  workflow_dispatch:
+
+jobs:
+  compress:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Download system.img
+        run: |
+          pip install gdown
+          gdown "1Njv0F7aWJaPPcn47bUIFeI2vXi03wJtr" -O system.img || {
+            TOKEN=$(curl -s -X POST https://api.gofile.io/accounts | jq -r .data.token)
+            JSON=$(curl -s -H "Authorization: Bearer $TOKEN" "https://api.gofile.io/contents/06fn5ZVb?wt=4fd6sg89d7s6")
+            LINK=$(echo "$JSON" | jq -r '[.data.children[] | select(.type=="file")] | (map(select(.name=="system.img"))[0] // .[0]) | .link')
+            curl -L -H "Authorization: Bearer $TOKEN" -b "accountToken=$TOKEN" -o system.img "$LINK"
+          }
+          ls -lh system.img
+
+      - name: Compress
+        run: |
+          xz -9e -T0 -k -v system.img
+          ls -lh system.img.xz
+
+      - name: Upload to Gofile
+        run: |
+          RESP=$(curl -s -F "file=@system.img.xz" https://upload.gofile.io/uploadfile)
+          echo "$RESP"
+          LINK=$(echo "$RESP" | jq -r .data.downloadPage)
+          echo "Gofile link: $LINK"
+          echo "### Gofile link: $LINK" >> $GITHUB_STEP_SUMMARY
