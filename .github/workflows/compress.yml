@@ -14,17 +14,14 @@ jobs:
 
       - name: Download system.img
         run: |
-          set -o pipefail
-          TOKEN=$(curl -s -X POST https://api.gofile.io/accounts | jq -r .data.token)
-          WT=$(curl -s https://gofile.io/dist/js/global.js | grep -oP 'appdata\.wt\s*=\s*"\K[^"]+')
-          echo "WT=$WT"
-          JSON=$(curl -s -H "Authorization: Bearer $TOKEN" -H "X-Website-Token: $WT" "https://api.gofile.io/contents/06fn5ZVb?wt=$WT")
-          echo "$JSON" | head -c 1500
-          LINK=$(echo "$JSON" | jq -r '[.data.children[] | select(.type=="file")] | (map(select(.name=="system.img"))[0] // .[0]) | .link') && [ "$LINK" != "null" ] && \
-          curl -L -H "Authorization: Bearer $TOKEN" -b "accountToken=$TOKEN" -o system.img "$LINK" || {
-            pip install gdown
+          pip install -U yt-dlp gdown
+          mkdir dl
+          if yt-dlp -P dl -o "%(title)s.%(ext)s" "https://gofile.io/d/06fn5ZVb"; then
+            F=$(ls -S dl/* | head -n1)
+            mv "$F" system.img
+          else
             gdown "1Njv0F7aWJaPPcn47bUIFeI2vXi03wJtr" -O system.img
-          }
+          fi
           ls -lh system.img
 
       - name: Compress
