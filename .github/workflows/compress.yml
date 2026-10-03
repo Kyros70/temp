@@ -7,21 +7,15 @@ jobs:
   compress:
     runs-on: ubuntu-latest
     steps:
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          df -h /
-
       - name: Download system.img
         run: |
-          pip install -U yt-dlp gdown
-          mkdir dl
-          if yt-dlp -P dl -o "%(title)s.%(ext)s" "https://gofile.io/d/06fn5ZVb"; then
-            F=$(ls -S dl/* | head -n1)
-            mv "$F" system.img
-          else
-            gdown "1Njv0F7aWJaPPcn47bUIFeI2vXi03wJtr" -O system.img
-          fi
+          pip install requests
+          git clone --depth 1 https://github.com/ltsdw/gofile-downloader.git
+          cd gofile-downloader
+          python3 gofile-downloader.py "https://gofile.io/d/06fn5ZVb"
+          F=$(find . -type f -not -path './.git/*' -not -name '*.py' -not -name '*.md' -printf '%s %p\n' | sort -rn | head -n1 | cut -d' ' -f2-)
+          mv "$F" "$GITHUB_WORKSPACE/system.img"
+          cd "$GITHUB_WORKSPACE"
           ls -lh system.img
 
       - name: Compress
