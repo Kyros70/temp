@@ -14,12 +14,16 @@ jobs:
 
       - name: Download system.img
         run: |
-          pip install gdown
-          gdown "1Njv0F7aWJaPPcn47bUIFeI2vXi03wJtr" -O system.img || {
-            TOKEN=$(curl -s -X POST https://api.gofile.io/accounts | jq -r .data.token)
-            JSON=$(curl -s -H "Authorization: Bearer $TOKEN" "https://api.gofile.io/contents/06fn5ZVb?wt=4fd6sg89d7s6")
-            LINK=$(echo "$JSON" | jq -r '[.data.children[] | select(.type=="file")] | (map(select(.name=="system.img"))[0] // .[0]) | .link')
-            curl -L -H "Authorization: Bearer $TOKEN" -b "accountToken=$TOKEN" -o system.img "$LINK"
+          set -o pipefail
+          TOKEN=$(curl -s -X POST https://api.gofile.io/accounts | jq -r .data.token)
+          WT=$(curl -s https://gofile.io/dist/js/global.js | grep -oP 'appdata\.wt\s*=\s*"\K[^"]+')
+          echo "WT=$WT"
+          JSON=$(curl -s -H "Authorization: Bearer $TOKEN" -H "X-Website-Token: $WT" "https://api.gofile.io/contents/06fn5ZVb?wt=$WT")
+          echo "$JSON" | head -c 1500
+          LINK=$(echo "$JSON" | jq -r '[.data.children[] | select(.type=="file")] | (map(select(.name=="system.img"))[0] // .[0]) | .link') && [ "$LINK" != "null" ] && \
+          curl -L -H "Authorization: Bearer $TOKEN" -b "accountToken=$TOKEN" -o system.img "$LINK" || {
+            pip install gdown
+            gdown "1Njv0F7aWJaPPcn47bUIFeI2vXi03wJtr" -O system.img
           }
           ls -lh system.img
 
